@@ -148,6 +148,8 @@ void relax(std::vector<Point>& points,const std::vector<Edge>& edges,const std::
     for(size_t i=0;i<points.size();++i)if(fixed[i]){center+=points[i];++anchored;}
     if(anchored)center=center*(1.0/anchored);
     const int iterations=points.size()>2000?280:360;
+    double temperature_start=45;
+    for(const auto& edge:edges)temperature_start=std::max(temperature_start,edge.target*.12);
     int settled=0;
     for(int step=0;step<iterations;++step) {
         tree.rebuild();
@@ -172,7 +174,7 @@ void relax(std::vector<Point>& points,const std::vector<Edge>& edges,const std::
                 forces[i]+=push;forces[edge.a]+=push*(-(1-t));forces[edge.b]+=push*(-t);
             }
         }
-        double temperature=45*std::pow(.004,static_cast<double>(step)/iterations)+.1,max_move=0;
+        double temperature=temperature_start*std::pow(.004,static_cast<double>(step)/iterations)+.1,max_move=0;
         for(size_t i=0;i<points.size();++i)if(!fixed[i]) {
             velocities[i]=velocities[i]*.45+forces[i]*.55;
             Point movement=velocities[i]*std::min(1.0,temperature/std::max(1e-9,length(velocities[i])));
@@ -180,6 +182,22 @@ void relax(std::vector<Point>& points,const std::vector<Edge>& edges,const std::
         }
         if(step%12==0)separate(points,edges,fixed,radii,1);
         if(step>80 && max_move<.035){if(++settled>=12)break;}else settled=0;
+    }
+    // Finish by fitting road lengths without repulsion/gravity stretching short roads.
+    // Average corrections at junctions so dense graphs remain stable.
+    std::vector<int> degree(points.size());
+    for(const auto& edge:edges){++degree[edge.a];++degree[edge.b];}
+    for(int step=0;step<240;++step) {
+        std::fill(forces.begin(),forces.end(),Point{});
+        for(const auto& edge:edges) {
+            Point delta=points[edge.b]-points[edge.a];double distance=length(delta);
+            Point normal=distance>1e-8?delta*(1.0/distance):direction(edge.a,edge.b);
+            double share=(fixed[edge.a] || fixed[edge.b])?1:.5;
+            Point correction=normal*((distance-edge.target)*share);
+            forces[edge.a]+=correction;forces[edge.b]+=correction*(-1);
+        }
+        for(size_t i=0;i<points.size();++i)if(!fixed[i] && degree[i])points[i]+=forces[i]*(.8/degree[i]);
+        if(step%12==0)separate(points,edges,fixed,radii,1);
     }
     separate(points,edges,fixed,radii,160);
 }
@@ -227,12 +245,26 @@ void Graph::automatic_layout(const std::vector<bool>& fixed,bool use_positions) 
         if(!inserted)it->second=std::min(it->second,lane.length);
         widths[key]=std::max(widths[key],6+9.0*(lane.parallel_count-1)+3.5);
     }
+    // One drawing scale for the entire city, including disconnected components.
+    // Increase the scale uniformly for short roads/wide junctions instead of
+    // clamping individual lengths, which would destroy their proportions.
+    std::vector<double> road_lengths,node_radii(nodes.size(),30);
+    for(const auto& [pair,road_length]:lengths) {
+        road_lengths.push_back(road_length);
+        double radius=widths.at(pair)+18;
+        node_radii[pair.first]=std::max(node_radii[pair.first],radius);
+        node_radii[pair.second]=std::max(node_radii[pair.second],radius);
+    }
+    std::sort(road_lengths.begin(),road_lengths.end());
+    double drawing_scale=road_lengths.empty()?1:ideal/road_lengths[road_lengths.size()/2];
+    for(const auto& [pair,road_length]:lengths)
+        drawing_scale=std::max(drawing_scale,(node_radii[pair.first]+node_radii[pair.second]+100)/road_length);
     struct Floating {std::vector<int> nodes;Bounds bounds;};
     std::vector<Floating> floating;
     Bounds anchored_bounds;bool have_anchors=false;
     for(const auto& component:components) {
         std::vector<Point> initial(component.size());std::vector<bool> pins(component.size());
-        std::vector<Edge> edges;std::vector<double> road_lengths;
+        std::vector<Edge> edges;
         std::vector<double> radii(component.size(),30);
         std::vector<std::vector<int>> adjacent(component.size());
         bool pinned=false;
@@ -242,20 +274,17 @@ void Graph::automatic_layout(const std::vector<bool>& fixed,bool use_positions) 
             if(static_cast<int>(i)<j) {
                 double road_length=lengths.at(std::minmax(component[i],neighbour));
                 double width=widths.at(std::minmax(component[i],neighbour));
-                edges.push_back({static_cast<int>(i),j,road_length,width+30});road_lengths.push_back(road_length);
+                edges.push_back({static_cast<int>(i),j,road_length*drawing_scale,width+30});
                 radii[i]=std::max(radii[i],width+18);radii[j]=std::max(radii[j],width+18);
             }
         }
         for(auto& neighbours:adjacent)std::sort(neighbours.begin(),neighbours.end());
         std::sort(edges.begin(),edges.end(),[](const Edge& a,const Edge& b){return std::pair{a.a,a.b}<std::pair{b.a,b.b};});
-        std::sort(road_lengths.begin(),road_lengths.end());
-        double median=road_lengths.empty()?1:road_lengths[road_lengths.size()/2];
-        for(auto& edge:edges)edge.target=std::max(ideal*std::pow(std::clamp(edge.target/median,.4,2.5),.3),radii[edge.a]+radii[edge.b]+100);
         if(use_positions && !pinned) {
             std::vector<double> distances;Point center;
-            for(const auto& edge:edges)distances.push_back(length(initial[edge.a]-initial[edge.b]));
+            for(const auto& edge:edges)distances.push_back(edge.target/std::max(1.0,length(initial[edge.a]-initial[edge.b])));
             std::sort(distances.begin(),distances.end());
-            double scale=distances.empty()?1:ideal/std::max(1.0,distances[distances.size()/2]);
+            double scale=distances.empty()?1:distances[distances.size()/2];
             for(auto point:initial)center+=point;
             center=center*(1.0/initial.size());
             for(auto& point:initial)point=(point-center)*scale;
