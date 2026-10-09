@@ -11,6 +11,16 @@
 .route-panel{border:1px solid var(--line);border-radius:9px;background:var(--panel);padding:16px 20px;margin:0 0 18px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}.route-controls{display:flex;align-items:end;gap:8px}.route-controls label{margin:0 0 5px}.route-controls select{min-width:83px}.route-summary{flex:1;min-width:230px;font-size:12px}.route-summary strong{color:var(--mint);font-weight:600}.route-path{color:var(--muted);font-size:11px;overflow-wrap:anywhere;margin-top:4px}.route-key{display:flex;gap:14px;color:var(--muted);font-size:10px;margin-top:6px}.route-key i{display:inline-block;width:16px;height:3px;vertical-align:middle;margin-right:5px}.map-tools{flex-wrap:wrap;justify-content:flex-end}.badge{white-space:nowrap}.map-top{gap:12px}.map-instruction{bottom:43px}.map-panel{min-height:590px}.sidebar{gap:12px}@media(max-width:550px){.route-panel{padding:14px;gap:12px}.route-controls{width:100%;flex-wrap:wrap}.route-controls select{min-width:70px}.map-top{left:10px;right:10px}.map-tools button{padding:4px 6px;font-size:10px}.badge{font-size:8px}.map-panel{min-height:460px}}
 
 .demand-inputs{display:flex;align-items:center;gap:10px;margin:5px 0 9px}.demand-inputs input[type=range]{flex:1;min-width:0;margin:0}.demand-inputs input[type=number]{width:82px;padding:7px 8px;border:1px solid var(--line);border-radius:6px;background:#10191e;color:var(--text);font-variant-numeric:tabular-nums}.demand-inputs input[type=number]:user-invalid{border-color:var(--red)}
+.legend [hidden]{display:none}
+.workspace{grid-template-columns:220px minmax(0,1fr) 286px}
+.destination-panel{align-self:start;padding:18px 14px}
+.destination-panel h3{margin-bottom:5px}
+.destination-list{list-style:none;margin:14px 0 0;padding:0;max-height:calc(100vh - 430px);min-height:180px;overflow-y:auto;font-variant-numeric:tabular-nums}
+.destination-list li{display:flex;justify-content:space-between;gap:10px;padding:9px 4px;border-bottom:1px solid var(--line)}
+.destination-list strong{color:var(--mint);font-weight:600}
+.destination-list .rank{display:inline-block;width:28px;color:var(--muted);font-size:11px}
+@media(max-width:1200px) and (min-width:901px){.workspace{grid-template-columns:180px minmax(0,1fr)}.workspace>.sidebar{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media(max-width:900px){.workspace{grid-template-columns:1fr}.destination-list{max-height:220px;min-height:0}}
 </style>
 </head>
 <body>
@@ -29,9 +39,10 @@
 <div class="route-summary"><div id="route-summary">Choose two nodes to compare travel time.</div><div id="route-path" class="route-path">ETAs account for current traffic and light timing.</div><div class="route-key"><span><i style="background:rgba(34,255,102,.5)"></i>Fastest by time</span><span><i style="background:#99baf4"></i>Shortest by distance (dashed)</span></div></div>
 </section>
 <div class="workspace">
-<section class="map-panel" aria-label="City visualization"><canvas id="city" aria-label="Animated city graph. Drag to pan, scroll to zoom, click a road to inspect it."></canvas><div class="map-top"><span id="network" class="badge">LOADING CITY</span><div class="map-tools"><button id="heat" title="Color roads by extra delay caused by traffic">Traffic heat on</button><button id="labels" title="Toggle node labels">Labels on</button><button id="fit" title="Fit the city in view">Fit city ↗</button></div></div><div class="legend"><span><i style="background:var(--mint)"></i>Moving</span><span><i style="background:var(--amber)"></i>Waiting</span><span><i style="background:var(--red)"></i>Red light</span><span>Road heat: low → high traffic delay</span></div><div class="map-instruction">Drag to pan · Scroll to zoom · Click a lane</div></section>
+<aside class="card destination-panel" aria-labelledby="destination-title"><h3 id="destination-title">Intersection queues</h3><div class="fine">Stopped cars on incoming roads.<br>Longest queue first · ties by node ID</div><div class="readout"><span>Intersection</span><span>Queued</span></div><ol id="destination-list" class="destination-list"><li class="fine">Waiting for simulation…</li></ol></aside>
+<section class="map-panel" aria-label="City visualization"><canvas id="city" aria-label="Animated city graph. Drag to pan, scroll to zoom, click a road to inspect it."></canvas><div class="map-top"><span id="network" class="badge">LOADING CITY</span><div class="map-tools"><button id="heat" title="Color roads by extra delay caused by traffic">Traffic heat on</button><button id="crashouts" aria-pressed="false" title="Show cumulative crashouts per road direction, across all parallel lanes">Crashouts off</button><button id="labels" title="Toggle node labels">Labels on</button><button id="label-size" aria-pressed="false" title="Enlarge node numbers">Bigger numbers</button><button id="fit" title="Fit the city in view">Fit city ↗</button></div></div><div class="legend"><span><i style="background:var(--mint)"></i>Moving</span><span><i style="background:var(--amber)"></i>Waiting</span><span><i style="background:var(--red)"></i>Red light</span><span>Road heat: low → high traffic delay</span><span id="crashout-key" hidden><i style="background:#f1a3bb"></i>× Crashouts since reset · Unmarked roads: 0</span></div><div class="map-instruction">Drag to pan · Scroll to zoom · Click a lane</div></section>
 <aside class="sidebar">
-<section class="card"><h3>Simulation controls</h3><div class="button-row"><button id="pause" class="primary">Ⅱ Pause</button><button id="reset" title="Restart from the same random seed">↺ Reset</button></div><label for="speed">Playback speed</label><select id="speed"><option value="0.25">0.25× · Slow motion</option><option value="0.5">0.5×</option><option value="1" selected>1× · Real time</option><option value="2">2×</option><option value="5">5×</option><option value="10">10×</option><option value="20">20×</option></select><label for="spawn" class="control-row"><span>Traffic demand</span><output id="spawn-value">3 cars/s</output></label><div class="demand-inputs"><input id="spawn" type="range" min="0" max="30" step="any" value="3"><input id="spawn-number" type="number" min="0" max="2000" step="any" value="3" required aria-label="Custom traffic demand" aria-describedby="demand-help" inputmode="decimal"></div><div id="demand-help" class="fine">0–2,000 cars/s. Press Enter or leave the field to apply.</div><div class="fine">Random arrival attempts per simulated second. Arrival attempts are skipped when a lane entrance is full.</div></section>
+<section class="card"><h3>Simulation controls</h3><div class="button-row"><button id="pause" class="primary">Ⅱ Pause</button><button id="reset" title="Restart from the same random seed">↺ Reset</button></div><label for="speed">Playback speed</label><select id="speed"><option value="0.25">0.25× · Slow motion</option><option value="0.5">0.5×</option><option value="1" selected>1× · Real time</option><option value="2">2×</option><option value="5">5×</option><option value="10">10×</option><option value="20">20×</option></select><label for="spawn" class="control-row"><span>Traffic demand</span><output id="spawn-value">3 cars/s</output></label><div class="demand-inputs"><input id="spawn" type="range" min="0" max="30" step="1" value="3"><input id="spawn-number" type="number" min="0" max="2000" step="any" value="3" required aria-label="Custom traffic demand" aria-describedby="demand-help" inputmode="decimal"></div><div id="demand-help" class="fine">0–2,000 cars/s. Press Enter or leave the field to apply.</div><div class="fine">Random arrival attempts per simulated second. Arrival attempts are skipped when a lane entrance is full.</div></section>
 <section class="card"><h3 id="detail-title">Explore the network</h3><div id="detail"><div class="fine">Click a road to see its direction, length, lane count, and traffic signal.</div></div></section>
 <section class="card"><h3>Run details</h3><div class="readout"><span>Random seed</span><strong id="seed" class="mono">42</strong></div><div class="readout"><span>Car speed</span><strong id="car-speed">2 units/s</strong></div><div class="readout"><span>Crashout delay limit</span><strong id="max-wait">60 s</strong></div><div class="readout"><span>Crashed out</span><strong id="abandoned">0</strong></div><div class="readout"><span>Unadmitted arrivals</span><strong id="rejected">0</strong></div><div class="readout"><span>Distance travelled</span><strong id="distance">0 units</strong></div><p class="fine">Drivers who reach the delay limit leave at the next node. Crashed-out trips are counted separately.</p><p class="fine" style="margin-bottom:0">A schematic city. Road lengths in CITY.IN determine travel time; drawing distances are independent.</p></section>
 </aside>
@@ -41,7 +52,7 @@
 <script>
 'use strict';
 const $=id=>document.getElementById(id),canvas=$('city'),ctx=canvas.getContext('2d');
-let graph=null,state=null,lanes=[],oldCars=new Map(),currentCars=new Map(),receivedAt=0,selected=-1,showLabels=true,showHeat=true,routeFormChanged=false;
+let graph=null,state=null,lanes=[],oldCars=new Map(),currentCars=new Map(),receivedAt=0,selected=-1,showLabels=true,largeNumbers=false,showHeat=true,showCrashouts=false,roadCrashouts=new Map(),routeFormChanged=false;
 let width=0,height=0,zoom=1,panX=0,panY=0,drag=null,pollBusy=false,lastTime=-1,connectionFailed=false,pendingDemand=null;
 const colors=['#ee857d','#a6eed2','#efbd77'];
 function heatColor(value){const a=value<.45?[44,72,77]:[167,122,65],b=value<.45?[167,122,65]:[194,76,71],t=value<.45?value/.45:(value-.45)/.55;return `rgb(${a.map((c,i)=>Math.round(c+(b[i]-c)*t)).join(',')})`;}
@@ -53,23 +64,60 @@ function point(l,t){return{x:l.ax+(l.bx-l.ax)*t,y:l.ay+(l.by-l.ay)*t};}
 function screen(p){return{x:p.x*zoom+panX,y:p.y*zoom+panY};}
 function path(a,b,color,lineWidth){ctx.strokeStyle=color;ctx.lineWidth=lineWidth;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
 function circle(p,r,color){ctx.fillStyle=color;ctx.beginPath();ctx.arc(p.x,p.y,r,0,Math.PI*2);ctx.fill();}
+function roadKey(lane){return `${lane.from},${lane.to}`;}
+function drawCrashouts(){
+if(!showCrashouts||!graph||!state)return;
+ctx.save();ctx.font='600 11px ui-monospace,monospace';ctx.textAlign='center';ctx.textBaseline='middle';
+for(const l of lanes){
+if(l.index!==0)continue;
+const count=roadCrashouts.get(roadKey(l))||0;if(!count)continue;
+const p=screen(point(l,.68));if(p.x<-50||p.x>width+50||p.y<-12||p.y>height+12)continue;
+const label=`× ${fmt(count)}`,boxWidth=ctx.measureText(label).width+12;
+ctx.fillStyle='#271c26';ctx.fillRect(p.x-boxWidth/2,p.y-10,boxWidth,20);
+ctx.strokeStyle='#a66a82';ctx.lineWidth=1;ctx.strokeRect(p.x-boxWidth/2,p.y-10,boxWidth,20);
+ctx.fillStyle='#f1a3bb';ctx.fillText(label,p.x,p.y);
+}
+ctx.restore();
+}
+function drawNodes(){
+if(!graph)return;
+ctx.save();
+for(const n of graph.nodes){
+const p=screen(n),label=String(n.id),visible=showLabels&&zoom>.12;
+const fontSize=largeNumbers?Math.max(16,14*zoom):Math.max(10,10*zoom);
+ctx.font=`${largeNumbers?700:600} ${fontSize}px ui-monospace,monospace`;
+const radius=Math.max(5,10*zoom,visible?ctx.measureText(label).width/2+5:0,visible?fontSize*.65:0);
+circle(p,radius,'#152127');ctx.strokeStyle=n.signal?'#80ab9e':'#607b83';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(p.x,p.y,radius,0,Math.PI*2);ctx.stroke();
+if(visible){ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#effbf5';ctx.fillText(label,p.x,p.y);}
+if(state?.route&&(n.id===state.route.from||n.id===state.route.to)){ctx.strokeStyle=n.id===state.route.from?'#a6eed2':'#99baf4';ctx.lineWidth=2;ctx.beginPath();ctx.arc(p.x,p.y,radius+4,0,Math.PI*2);ctx.stroke();}
+}
+ctx.restore();
+}
 function draw(now){ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);ctx.clearRect(0,0,width,height);ctx.fillStyle='#233039';const grid=32;for(let x=(panX%grid+grid)%grid;x<width;x+=grid)for(let y=(panY%grid+grid)%grid;y<height;y+=grid)ctx.fillRect(x,y,1,1);
 if(graph){ctx.lineCap='round';for(const l of lanes){const a=screen(point(l,0)),b=screen(point(l,1));path(a,b,selected===l.id?'#90b5ab':showHeat&&state?heatColor(state.lanes[l.id][4]):'#2b3b43',Math.max(2,7*zoom));const m=screen(point(l,.57)),angle=Math.atan2(l.dy,l.dx);ctx.save();ctx.translate(m.x,m.y);ctx.rotate(angle);ctx.strokeStyle='#70888f';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(-3,-2.7);ctx.lineTo(1,0);ctx.lineTo(-3,2.7);ctx.stroke();ctx.restore();if(l.light&&state){circle(screen(point(l,Math.max(.55,1-19/l.len))),Math.max(2,3*zoom),colors[state.lanes[l.id][1]]);}}
 if(state?.route?.fastest?.reachable){
 const trace=(route,color,dashed)=>{ctx.setLineDash(dashed?[6,5]:[]);for(const id of route.lanes){const l=lanes[id];path(screen(point(l,0)),screen(point(l,1)),color,Math.max(2.2,3*zoom));}ctx.setLineDash([]);};
 trace(state.route.shortest,'#99baf4',true);
 }
-for(const n of graph.nodes){const p=screen(n);circle(p,Math.max(3,10*zoom),'#152127');ctx.strokeStyle=n.signal?'#668d83':'#435961';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(p.x,p.y,Math.max(3,10*zoom),0,Math.PI*2);ctx.stroke();if(showLabels&&zoom>.12){ctx.font=`${Math.max(8,10*zoom)}px ui-monospace,monospace`;ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#c3d1d2';ctx.fillText(n.id,p.x,p.y);}if(state?.route&&(n.id===state.route.from||n.id===state.route.to)){ctx.strokeStyle=n.id===state.route.from?'#a6eed2':'#99baf4';ctx.lineWidth=2;ctx.beginPath();ctx.arc(p.x,p.y,Math.max(8,15*zoom),0,Math.PI*2);ctx.stroke();}}
+
 const blend=state?.paused?1:Math.min(1,Math.max(0,(now-receivedAt)/110));for(const [id,c]of currentCars){const prev=oldCars.get(id)||c;const p={x:prev.x+(c.x-prev.x)*blend,y:prev.y+(c.y-prev.y)*blend};const s=screen(p);if(s.x<-10||s.x>width+10||s.y<-10||s.y>height+10)continue;ctx.save();ctx.translate(s.x,s.y);ctx.rotate(c.angle);ctx.fillStyle=c.velocity<.05?'#efbd77':'#b9f6dc';const size=Math.max(2,zoom*5);ctx.fillRect(-size/2,-Math.max(1,zoom*1.8),size,Math.max(2,zoom*3.6));ctx.restore();}}
-// Draw the selected route last so its translucent green stroke covers traffic.
+// Draw the selected route above vehicles so its translucent green stroke covers traffic.
 if(graph&&state?.route?.fastest?.reachable){
 ctx.save();ctx.globalAlpha=0.5;ctx.strokeStyle='#22ff66';ctx.lineWidth=Math.max(5,10*zoom);ctx.lineCap='round';ctx.lineJoin='round';ctx.setLineDash([]);ctx.beginPath();
 state.route.fastest.lanes.forEach((id,index)=>{const lane=lanes[id],a=screen(point(lane,0)),b=screen(point(lane,1));if(index===0)ctx.moveTo(a.x,a.y);else ctx.lineTo(a.x,a.y);ctx.lineTo(b.x,b.y);});
 ctx.stroke();ctx.restore();
 }
+drawNodes();drawCrashouts();
 requestAnimationFrame(draw);}
-function detail(){if(selected<0||!state)return;const l=lanes[selected],info=state.lanes[selected];$('detail-title').textContent=`Road ${graph.nodes[l.from].id} → ${graph.nodes[l.to].id}`;const rows=[['Selected lane',`${l.index+1} of ${l.count}`],['Length',`${l.length} units`],['Free-flow time',`${(l.length/state.speed).toFixed(1)} s`],['Vehicles in lane',info[0]],['Estimated travel',`${info[3].toFixed(1)} s`],['Extra traffic delay',`${info[6].toFixed(1)} s`],['Signal delay without traffic',`${info[7].toFixed(1)} s`],['Road space occupied',`${Math.round(info[5]*100)}%`],['Signal',l.light?`${['Red','Green','Amber'][info[1]]} · ${info[2].toFixed(1)} s`:'Unsignalized']];$('detail').replaceChildren(...rows.map(([name,value])=>{const row=document.createElement('div');row.className='readout';const label=document.createElement('span');label.textContent=name;const output=document.createElement('strong');output.textContent=value;row.append(label,output);return row;}));}
-function update(s){state=s;
+function detail(){if(selected<0||!state)return;const l=lanes[selected],info=state.lanes[selected];$('detail-title').textContent=`Road ${graph.nodes[l.from].id} → ${graph.nodes[l.to].id}`;const rows=[['Selected lane',`${l.index+1} of ${l.count}`],['Length',`${l.length} units`],['Free-flow time',`${(l.length/state.speed).toFixed(1)} s`],['Vehicles in lane',info[0]],['Crashed out on road',fmt(roadCrashouts.get(roadKey(l))||0)],['Crashed out in lane',fmt(state.laneCrashouts?.[selected]||0)],['Estimated travel',`${info[3].toFixed(1)} s`],['Extra traffic delay',`${info[6].toFixed(1)} s`],['Signal delay without traffic',`${info[7].toFixed(1)} s`],['Road space occupied',`${Math.round(info[5]*100)}%`],['Signal',l.light?`${['Red','Green','Amber'][info[1]]} · ${info[2].toFixed(1)} s`:'Unsignalized']];$('detail').replaceChildren(...rows.map(([name,value])=>{const row=document.createElement('div');row.className='readout';const label=document.createElement('span');label.textContent=name;const output=document.createElement('strong');output.textContent=value;row.append(label,output);return row;}));}
+function intersectionQueues(s){
+const ranked=graph.nodes.map((node,index)=>({id:node.id,count:s.intersectionQueues?.[index]||0})).sort((a,b)=>b.count-a.count||a.id-b.id);
+const signature=ranked.map(n=>`${n.id}:${n.count}`).join(',');
+const list=$('destination-list');if(list.dataset.signature===signature)return;list.dataset.signature=signature;
+list.replaceChildren(...ranked.map((node,index)=>{const row=document.createElement('li'),name=document.createElement('span'),rank=document.createElement('span'),count=document.createElement('strong');rank.className='rank';rank.textContent=index+1;name.append(rank,document.createTextNode(`Node ${node.id}`));count.textContent=fmt(node.count);row.append(name,count);return row;}));
+}
+function update(s){state=s;intersectionQueues(s);
+roadCrashouts=new Map();for(const lane of lanes){const key=roadKey(lane);roadCrashouts.set(key,(roadCrashouts.get(key)||0)+(s.laneCrashouts?.[lane.id]||0));}
 $('max-wait').textContent=s.maxWait>0?`${fmt(s.maxWait)} s`:'Disabled';$('abandoned').textContent=fmt(s.stats.abandoned);
 if(s.route&&!s.route.error&&!routeFormChanged){$('route-from').value=s.route.from;$('route-to').value=s.route.to;}const stats=s.stats;$('active').textContent=fmt(stats.active);$('stopped').textContent=fmt(stats.stopped);$('completed').textContent=fmt(stats.completed);$('trip').textContent=stats.completed?stats.avgTrip.toFixed(1):'—';$('delay').textContent=stats.completed?`${stats.avgWait.toFixed(1)} s average delay`:'Waiting for a completed trip';$('capacity').textContent=`${fmt(s.maxCars)} vehicle capacity`;$('arrivals').textContent=`${fmt(stats.spawned)} vehicles admitted`;$('rejected').textContent=fmt(stats.rejected);$('distance').textContent=`${fmt(Math.round(stats.distance))} units`;$('seed').textContent=s.seed;$('car-speed').textContent=`${s.speed} units/s`;$('clock').textContent=`${String(Math.floor(stats.time/60)).padStart(2,'0')}:${(stats.time%60).toFixed(1).padStart(4,'0')}`;$('pause').textContent=s.paused?'▶ Resume':'Ⅱ Pause';if(document.activeElement!==$('speed')){if(![...$('speed').options].some(o=>Number(o.value)===s.timeScale))$('speed').add(new Option(`${s.timeScale}×`,s.timeScale));$('speed').value=s.timeScale;}if(pendingDemand!==null&&Math.abs(s.spawnRate-pendingDemand)<0.00051)pendingDemand=null;if(document.activeElement!==$('spawn')&&document.activeElement!==$('spawn-number')&&pendingDemand===null)syncDemand(s.spawnRate);$('connection').textContent=s.paused?'Local engine · Paused':'Local engine · Running';$('connection-dot').classList.remove('offline');$('render-status').textContent=stats.active>s.renderLimit?`Showing ${fmt(s.cars.length)} of ${fmt(stats.active)} cars · All cars are simulated`:'All values are simulated';oldCars=stats.time<lastTime?new Map():currentCars;currentCars=new Map(s.cars.map(c=>{const l=lanes[c[1]],p=point(l,c[2]);return[c[0],{...p,velocity:c[3],angle:Math.atan2(l.dy,l.dx)}];}));lastTime=stats.time;receivedAt=performance.now();detail();routeDetails();}
 function routeDetails(){
@@ -88,7 +136,7 @@ function error(message){$('error').textContent=message;$('error').style.display=
 async function poll(){if(pollBusy||!graph)return;pollBusy=true;try{const response=await fetch('/api/state',{signal:AbortSignal.timeout(3000)});if(!response.ok)throw Error('The simulator returned an error.');update(await response.json());if(connectionFailed){error('');connectionFailed=false;}}catch(e){connectionFailed=true;$('connection').textContent='Engine disconnected';$('connection-dot').classList.add('offline');error('Connection lost. Check that streetflow is running in your terminal. Reconnecting…');}finally{pollBusy=false;}}
 async function command(value){try{const response=await fetch('/api/control',{method:'POST',body:value,headers:{'Content-Type':'text/plain'},signal:AbortSignal.timeout(3000)});if(!response.ok)throw Error(await response.text());error('');setTimeout(poll,50);return true;}catch(e){error(`Could not apply control: ${e.message}`);return false;}}
 function syncDemand(value,retainRange=false){
-$('spawn').max=Math.max(30,value,retainRange?Number($('spawn').max):0);$('spawn').value=value;$('spawn-number').value=value;$('spawn-value').textContent=`${value} cars/s`;
+$('spawn').max=Math.ceil(Math.max(30,value,retainRange?Number($('spawn').max):0));$('spawn').value=Math.round(value);$('spawn-number').value=value;$('spawn-value').textContent=`${value} cars/s`;
 }
 async function applyDemand(){
 const input=$('spawn-number');
@@ -99,6 +147,8 @@ syncDemand(value,document.activeElement===$('spawn'));pendingDemand=value;
 if(!await command(`spawn=${value}`)&&pendingDemand===value)pendingDemand=null;
 }
 $('route-from').onchange=$('route-to').onchange=()=>{routeFormChanged=true;};$('compare').onclick=()=>{routeFormChanged=true;command(`route=${$('route-from').value},${$('route-to').value}`);};$('clear-route').onclick=()=>command('clear-route');$('heat').onclick=()=>{showHeat=!showHeat;$('heat').textContent=`Traffic heat ${showHeat?'on':'off'}`;};
+$('label-size').onclick=()=>{largeNumbers=!largeNumbers;$('label-size').textContent=largeNumbers?'Normal numbers':'Bigger numbers';$('label-size').setAttribute('aria-pressed',String(largeNumbers));if(largeNumbers){showLabels=true;$('labels').textContent='Labels on';}};
+$('crashouts').onclick=()=>{showCrashouts=!showCrashouts;$('crashouts').textContent=`Crashouts ${showCrashouts?'on':'off'}`;$('crashouts').setAttribute('aria-pressed',String(showCrashouts));$('crashout-key').hidden=!showCrashouts;};
 $('pause').onclick=()=>state&&command(state.paused?'resume':'pause');$('reset').onclick=()=>command('reset');$('speed').onchange=e=>command(`speed=${e.target.value}`);$('spawn').oninput=e=>syncDemand(Number(e.target.value),true);$('spawn').onchange=()=>applyDemand();$('spawn-number').onchange=()=>applyDemand();$('spawn-number').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();applyDemand();}};$('fit').onclick=fit;$('labels').onclick=()=>{showLabels=!showLabels;$('labels').textContent=`Labels ${showLabels?'on':'off'}`;};
 canvas.addEventListener('wheel',e=>{e.preventDefault();const rect=canvas.getBoundingClientRect(),x=e.clientX-rect.left,y=e.clientY-rect.top,next=Math.max(.015,Math.min(8,zoom*Math.exp(-e.deltaY*.001)));panX=x-(x-panX)*next/zoom;panY=y-(y-panY)*next/zoom;zoom=next;},{passive:false});
 canvas.onpointerdown=e=>{canvas.setPointerCapture(e.pointerId);drag={x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY};};canvas.onpointermove=e=>{if(!drag)return;panX+=e.clientX-drag.x;panY+=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;};canvas.onpointerup=e=>{if(drag&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<4&&graph){const rect=canvas.getBoundingClientRect(),p={x:e.clientX-rect.left,y:e.clientY-rect.top};let best=12;selected=-1;for(const l of lanes){const a=screen(point(l,0)),b=screen(point(l,1)),dx=b.x-a.x,dy=b.y-a.y,den=dx*dx+dy*dy,t=den?Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/den)):0,d=Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy);if(d<best){best=d;selected=l.id;}}if(selected<0){$('detail-title').textContent='Explore the network';$('detail').textContent='Click a road to inspect its traffic.';}else detail();}drag=null;};canvas.onpointercancel=()=>drag=null;

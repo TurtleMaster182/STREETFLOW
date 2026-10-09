@@ -51,6 +51,7 @@ public:
     Stats stats;
     std::vector<Car> cars;
     std::vector<std::deque<size_t>> queues;
+    std::vector<uint64_t> lane_crashouts;
     size_t active_count = 0;
 private:
     mutable std::optional<TravelForecast> traffic;

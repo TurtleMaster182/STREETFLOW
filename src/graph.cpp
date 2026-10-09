@@ -3,7 +3,6 @@
 #include <cmath>
 #include <iomanip>
 #include <map>
-#include <random>
 #include <sstream>
 #include <stdexcept>
 
@@ -15,7 +14,7 @@ void unique(std::vector<int>& values) {
     values.erase(std::unique(values.begin(), values.end()), values.end());
 }
 }
-Graph Graph::read(std::istream& input) {
+Graph Graph::read(std::istream& input, bool arrange) {
     Graph g;
     std::string line;
     size_t line_no = 0;
@@ -64,55 +63,10 @@ Graph Graph::read(std::istream& input) {
         unique(n.neighbours); unique(n.signal_sources);
         if (!n.outgoing.empty()) g.origins.push_back(order[p]);
     }
-    g.automatic_layout();
+    if(arrange) g.automatic_layout();
     return g;
 }
-void Graph::automatic_layout() {
-    // Seeded spiral initialization plus local repulsion and road springs. No square grid.
-    std::mt19937 rng(42);
-    std::uniform_real_distribution<double> jitter(-0.3,0.3);
-    for(size_t i=0;i<nodes.size();++i) {
-        double angle=i*2.399963229728653+jitter(rng),radius=75*std::sqrt(i+1.0);
-        nodes[i].x=radius*std::cos(angle);nodes[i].y=radius*std::sin(angle);
-    }
-    constexpr double cell=160;
-    const int iterations=nodes.size()>2000?50:160;
-    std::vector<std::pair<double,double>> forces(nodes.size());
-    for(int step=0;step<iterations;++step) {
-        std::map<std::pair<int,int>,std::vector<int>> buckets;
-        for(size_t i=0;i<nodes.size();++i) buckets[{static_cast<int>(std::floor(nodes[i].x/cell)),static_cast<int>(std::floor(nodes[i].y/cell))}].push_back(static_cast<int>(i));
-        std::fill(forces.begin(),forces.end(),std::pair<double,double>{0,0});
-        for(size_t i=0;i<nodes.size();++i) {
-            int x=static_cast<int>(std::floor(nodes[i].x/cell)),y=static_cast<int>(std::floor(nodes[i].y/cell));
-            for(int dx=-1;dx<=1;++dx) for(int dy=-1;dy<=1;++dy) {
-                auto found=buckets.find({x+dx,y+dy});if(found==buckets.end()) continue;
-                for(int j:found->second) {
-                    if(j<=static_cast<int>(i))continue;
-                    double rx=nodes[i].x-nodes[j].x,ry=nodes[i].y-nodes[j].y;
-                    double d=std::max(1.0,std::hypot(rx,ry));if(d>cell)continue;
-                    double force=3000/(d*d);
-                    forces[i].first+=rx*force;forces[i].second+=ry*force;
-                    forces[j].first-=rx*force;forces[j].second-=ry*force;
-                }
-            }
-        }
-        for(const auto& lane:lanes) {
-            if(lane.parallel_index)continue;
-            double dx=nodes[lane.to].x-nodes[lane.from].x,dy=nodes[lane.to].y-nodes[lane.from].y;
-            double d=std::max(1.0,std::hypot(dx,dy)),target=80+std::min(lane.length,60.0)*2;
-            double force=(d-target)*0.025/d;
-            forces[lane.from].first+=dx*force;forces[lane.from].second+=dy*force;
-            forces[lane.to].first-=dx*force;forces[lane.to].second-=dy*force;
-        }
-        double limit=18*(1-static_cast<double>(step)/iterations)+0.5;
-        for(size_t i=0;i<nodes.size();++i) {
-            auto [fx,fy]=forces[i];fx-=nodes[i].x*0.002;fy-=nodes[i].y*0.002;
-            double magnitude=std::max(1.0,std::hypot(fx,fy)),scale=std::min(1.0,limit/magnitude);
-            nodes[i].x+=fx*scale;nodes[i].y+=fy*scale;
-        }
-    }
-}
-void Graph::read_layout(std::istream& input) {
+void Graph::read_layout(std::istream& input, bool fixed) {
     std::string line; size_t line_no = 0;
     std::vector<bool> seen(nodes.size(), false);
     auto positions = nodes;
@@ -128,9 +82,9 @@ void Graph::read_layout(std::istream& input) {
         if (seen[idx]) throw std::runtime_error("Duplicate node in layout: " + std::to_string(id));
         seen[idx] = true; positions[idx].x = x; positions[idx].y = y;
     }
-    if (std::find(seen.begin(), seen.end(), false) != seen.end())
-        throw std::runtime_error("Layout must provide a position for every city node");
     nodes = std::move(positions);
+    if(!fixed) automatic_layout({},true);
+    else if (std::find(seen.begin(), seen.end(), false) != seen.end()) automatic_layout(seen);
 }
 std::string Graph::json() const {
     std::ostringstream out; out << std::setprecision(10) << "{\"nodes\":[";

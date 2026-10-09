@@ -35,6 +35,8 @@ assert a['stats']['time'] > 0 and a['stats']['spawned'] > 0
 assert a['spawnRate'] == 10 and a['timeScale'] == 5
 assert a['routing'] == 'time'
 assert all(len(lane) == 8 and lane[3] >= 0 and 0 <= lane[4] <= 1 for lane in a['lanes'])
+assert len(a['laneCrashouts']) == len(city['lanes'])
+assert sum(a['laneCrashouts']) == a['stats']['abandoned']
 control('route=1,28')
 route = get('/api/state')['route']
 assert route['fastest']['reachable']

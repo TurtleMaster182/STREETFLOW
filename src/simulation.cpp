@@ -20,6 +20,7 @@ void Simulation::reset() {
     time = 0; stats = {}; active_count = 0; next_id = 1; ticks = 0;
     cars.clear(); free_slots.clear(); trees.clear(); traffic.reset(); random.seed(config.seed);
     queues.assign(graph.lanes.size(), {});
+    lane_crashouts.assign(graph.lanes.size(), 0);
     junction_cursor.assign(graph.nodes.size(), 0);
     next_crossing.assign(graph.nodes.size(), 0);
 }
@@ -101,7 +102,9 @@ void Simulation::finish_trip(size_t slot, bool completed) {
     if(completed) {
         ++stats.completed;
         stats.total_trip_time+=time+dt-c.born; stats.completed_wait+=c.waiting;
-    } else ++stats.abandoned;
+    } else {
+        ++stats.abandoned; ++lane_crashouts[c.lane];
+    }
     c.route.clear(); free_slots.push_back(slot);
 }
 void Simulation::tick() {
@@ -129,7 +132,7 @@ void Simulation::tick() {
         if(q.empty()) continue;
         size_t slot=q.front(); const auto& c=cars[slot];
         if(c.abandoning && c.position+1e-9>=graph.lanes[lane].length) {
-            q.pop_front(); finish_trip(slot,false);
+            q.pop_front(); finish_trip(slot,c.route_index+1==c.route.size());
         }
     }
     // At most one crossing per junction per headway. Rotating priority prevents starvation.
@@ -192,6 +195,21 @@ std::string Simulation::snapshot(bool paused,double time_scale,size_t render_lim
         out << '[' << queues[i].size() << ',' << signal(static_cast<int>(i)) << ',' << signal_remaining(static_cast<int>(i)) << ',' << prediction.roads[i].seconds
             << ',' << prediction.roads[i].congestion << ',' << prediction.roads[i].occupancy
             << ',' << prediction.roads[i].traffic_delay << ',' << prediction.roads[i].signal_delay << ']';
+    }
+    out << "],\"laneCrashouts\":[";
+    for(size_t i=0;i<lane_crashouts.size();++i) {
+        if(i) out << ',';
+        out << lane_crashouts[i];
+    }
+    // Match the stopped-car metric, grouped by the next intersection.
+    // Use all simulated cars, independently of the viewer's render limit.
+    std::vector<size_t> intersection_queues(graph.nodes.size(),0);
+    for(const auto& car:cars) if(car.active && car.velocity<0.05)
+        ++intersection_queues[graph.lanes[car.lane].to];
+    out << "],\"intersectionQueues\":[";
+    for(size_t i=0;i<intersection_queues.size();++i) {
+        if(i) out << ',';
+        out << intersection_queues[i];
     }
     out << "],\"route\":";
     if(selected_route) out << route_comparison(selected_route->first,selected_route->second);

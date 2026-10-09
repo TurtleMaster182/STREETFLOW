@@ -20,9 +20,13 @@ To load your own city:
 streetflow /path/to/CITY.IN
 ```
 
-Traffic demand can be set with the slider or the number field beside it (0–2,000 cars/s, including decimals). Press Enter or leave the number field to apply it.
+Traffic demand can be set with the slider, which snaps to whole cars/s, or the number field beside it (0–2,000 cars/s, including decimals). Press Enter or leave the number field to apply it. For a custom decimal value, the slider thumb sits at the nearest whole number while the field and demand label keep your exact value.
 
 Drivers give up after **60 simulated seconds of accumulated traffic delay** by default. They keep moving with the queue and despawn at the next node ahead. Run details shows the **Crashed out** count. Change the limit with `streetflow --max-wait 120`, or disable it with `--max-wait 0`.
+
+The **Intersection queues** column on the left ranks nodes by stopped cars on their incoming roads, longest queue first (ties use node ID). Cars moving below 0.05 units/s count as stopped, matching **Waiting now**. Cars count at the next intersection, regardless of their final destination, and parallel incoming lanes are combined. Counts update live, include cars beyond the map’s display limit, and clear as queues move or the simulation resets. Nodes with no queue appear at the bottom.
+
+Turn **Crashouts on** above the map to display `× N` badges on roads where drivers left before reaching their destination. Counts accumulate until Reset, combine parallel lanes in the same direction, and keep opposite directions separate. Unmarked roads have zero crashouts. Click a road to see both its total and the selected lane's count, even when the overlay is off. A driver who reaches their original destination counts as a completed trip.
 
 The viewer provides moving cars, red/amber/green lights, lane inspection, pause/resume, reset, traffic demand, playback speed, trip statistics, a congestion overlay, and an A-to-B route comparison. Drag the map to pan, scroll to zoom, and click a lane for details. The simulator and the entire viewer are bundled into one executable; runtime operation needs no internet connection.
 
@@ -86,7 +90,20 @@ The light flag controls traffic **approaching `b` from `a`**. Set it on every in
 
 ## Drawing the city
 
-Your four-column format stays unchanged. Without a layout file, nodes are positioned using a deterministic force-directed layout: connected nodes attract each other and nearby nodes repel each other. The bundled demo instead uses a generated, irregular street network with matching coordinates. Road crossings in the drawing create no additional graph connections.
+Your four-column format stays unchanged. When you start the app, it arranges the nodes **before the simulation clock starts**. Add a road containing a new node ID to `CITY.IN`, then restart STREETFLOW; its position is calculated from its connections. The bundled demo and automatically discovered `CITY.LAYOUT` files use their saved positions as starting hints and go through spacing correction.
+
+The automatic layout uses road springs, node repulsion, and gradually decreasing movement so the graph settles into place. Parallel lanes and reverse roads form one spring per node pair, with spacing based on the widest bundle of lanes. A separation pass adds clearance between nodes and keeps unrelated nodes outside road corridors on small diagrams. Disconnected clusters are packed separately. Small graphs try three deterministic starting arrangements (plus the saved arrangement when available) and select the result with the best crossing/spacing score. Large graphs use a Barnes–Hut tree to approximate distant repulsion rather than comparing every pair of nodes. This is a drawing heuristic, not a guarantee of a globally perfect or crossing-free layout. Road crossings in the drawing create no additional graph connections.
+
+To rearrange the whole city, including the bundled demo or a city with saved coordinates:
+
+```sh
+streetflow --auto-layout
+streetflow /path/to/CITY.IN --auto-layout
+```
+
+Positions settle once at startup and stay still during traffic simulation. The same graph and starting hints produce the same automatic arrangement. Changing lane order or adding a reverse direction with matching road length and lane count does not change the geometry. Adding parallel lanes can require more clearance.
+
+Click **Bigger numbers** above the map to enlarge node IDs; click **Normal numbers** to restore their size. Node circles grow to fit the text, and numbers are drawn above cars and route highlights so they stay readable.
 
 For a custom arrangement, put a `CITY.LAYOUT` file beside your input file:
 
@@ -97,7 +114,7 @@ For a custom arrangement, put a `CITY.LAYOUT` file beside your input file:
 5 0 150
 ```
 
-Provide one position for every node in the graph. Coordinates affect the drawing only; `d` in `CITY.IN` determines travel distance. An alternative layout path can be supplied with `--layout FILE`.
+You can provide positions for all nodes or just some of them. By default they are hints that may move during spacing correction. To keep listed nodes fixed, pass `--layout FILE` explicitly; missing nodes are then placed around those fixed positions. Fixed coordinates can still overlap if authored that way. Coordinates affect the drawing only; `d` in `CITY.IN` determines travel distance. `--auto-layout` ignores saved coordinates and starts a fresh arrangement.
 
 See [examples/CITY.IN](examples/CITY.IN) and [examples/CITY.LAYOUT](examples/CITY.LAYOUT) for the bundled city.
 
@@ -106,7 +123,7 @@ See [examples/CITY.IN](examples/CITY.IN) and [examples/CITY.LAYOUT](examples/CIT
 - **Time:** fixed 0.05-second steps. Playback speed changes the number of simulated seconds per wall-clock second, keeping the same step size.
 - **Movement:** cars move at a configurable cruising speed, default **2 length units per simulated second**. An unobstructed 10-unit lane takes about 5 seconds. Transfers between lanes happen only when a car reaches the end; travel times are quantized to simulation steps.
 - **Queues:** cars maintain at least **0.85 units** of front-to-front spacing on each lane. A car slows or stops behind the vehicle ahead and waits if its next lane has no entrance space. This is a simple constant-speed/instant-braking model.
-- **Crashouts:** each car accumulates the time lost compared with cruising-speed travel, including queues and signal waits. At `--max-wait` seconds (default 60), it commits to leaving at the downstream end of its current lane. It still follows the queue and speed limit; it never disappears mid-road or reverses toward the previous node. Once at the node it exits the network without waiting for a green light, junction crossing slot, or downstream space. These exits count as `abandoned`, not completed trips, and do not contribute to completed-trip averages. A limit of 0 disables crashouts. Reset clears the count.
+- **Crashouts:** each car accumulates the time lost compared with cruising-speed travel, including queues and signal waits. At `--max-wait` seconds (default 60), it commits to leaving at the downstream end of its current lane. It still follows the queue and speed limit; it never disappears mid-road or reverses toward the previous node. Once at the node it exits the network without waiting for a green light, junction crossing slot, or downstream space. Exits before the original destination count as `abandoned` and do not contribute to completed-trip averages; arrivals at the original destination still count as completed. A limit of 0 disables crashouts. Reset clears the overall and per-road counts.
 - **Random trips:** arrival attempts follow a Poisson process. A source with outgoing roads is selected, then a reachable destination. Time-dependent Dijkstra chooses the route with the earliest predicted arrival. Routes are chosen when cars spawn; existing cars keep their chosen route. Use `--routing distance` for the old distance-only baseline. Within a simulation step, at most 32 source trees are cached against the same traffic observation; they expire at the next step.
 - **Lane choice:** parallel lanes form one road direction. Cars use an available lane with the shortest queue when entering it; they do not change lanes partway along a road.
 - **Signals:** incoming signalized directions take turns. Each gets 8 seconds green, followed by 2 seconds amber and 1 second all-red by default. Amber stops new crossings. Parallel lanes from the same source share the phase.
@@ -165,6 +182,9 @@ streetflow examples/CITY.IN --validate
 # Start paused, without opening another browser window
 streetflow --paused --no-browser
 
+# Automatically arrange all nodes before starting
+streetflow --auto-layout
+
 # Change traffic, cruising speed, and signal timing
 streetflow examples/CITY.IN --spawn-rate 8 --speed 2 --green 12 --yellow 2 --all-red 1
 
@@ -221,7 +241,7 @@ The engine stores adjacency lists and ordered lane queues. Each step visits the 
 ctest --test-dir build --output-on-failure
 ```
 
-The core checks cover the directed input format, parallel lanes, travel duration, red-light stops, blocked downstream lanes, vehicle spacing and conservation, deterministic reset, routing through disconnected components, a longer-but-faster detour, cache invalidation after congestion changes, future signal phases, FIFO exit functions, and deterministic automatic layouts.
+The core checks cover the directed input format, parallel lanes, travel duration, red-light stops, blocked downstream lanes, vehicle spacing and conservation, deterministic reset, routing through disconnected components, a longer-but-faster detour, cache invalidation after congestion changes, future signal phases, and FIFO exit functions. Layout checks cover deterministic placement, node clearance, lane order independence, new nodes with partial saved coordinates, fixed anchors, and separated disconnected components.
 
 The generator has separate connectivity, repeatability, lane consistency, and road-crossing checks:
 
@@ -242,6 +262,7 @@ The server binds to `127.0.0.1` only. Its API exposes `GET /api/city`, `GET /api
 | Path | Purpose |
 |---|---|
 | `src/graph.*` | Read roads/layouts and construct graph connectivity |
+| `src/layout.cpp` | Automatic node placement, saved anchors, and component packing |
 | `src/simulation.*` | Random demand, movement, queues, signals, metrics |
 | `src/routing.*` | Traffic forecasts, time-dependent Dijkstra, distance baseline |
 | `src/http_server.*` | Local HTTP server and control queue |

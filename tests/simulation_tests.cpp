@@ -2,6 +2,7 @@
 #include "simulation.hpp"
 #include <cmath>
 #include <iostream>
+#include <numeric>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -26,6 +27,7 @@ void invariants(const sf::Simulation& sim) {
     }
     require(queued==sim.active_count,"Active cars not accounted for");
     require(sim.stats.spawned==sim.stats.completed+sim.stats.abandoned+sim.active_count,"Car conservation broken");
+    require(std::accumulate(sim.lane_crashouts.begin(),sim.lane_crashouts.end(),uint64_t{0})==sim.stats.abandoned,"Road crashouts do not match total");
 }
 }
 int main() {
@@ -43,11 +45,32 @@ int main() {
         {
             auto g=city("1 2 0 10\n2 3 0 10\n"); sf::Simulation sim(g,config());
             require(sim.add_trip({0,1}),"Could not add trip");
+            require(sim.snapshot(false,1,0).find("\"intersectionQueues\":[0,1,0]")!=std::string::npos,"Queues must count the next intersection even with no rendered cars");
             tick(sim,50); require(std::abs(sim.cars[0].position-5)<1e-8,"Distance does not equal speed * time");
             require(sim.cars[0].lane==0 && sim.stats.completed==0,"Car teleported");
+            require(sim.snapshot(false,1).find("\"intersectionQueues\":[0,0,0]")!=std::string::npos,"Moving cars must not count as queued");
             tick(sim,50); require(sim.cars[0].lane==1 && sim.cars[0].position==0,"Intersection transfer failed");
             tick(sim,100); require(sim.stats.completed==1,"Trip did not complete");
             require(std::abs(sim.stats.total_trip_time-10)<1e-8,"Wrong free-flow trip duration");
+            require(sim.snapshot(false,1).find("\"intersectionQueues\":[0,0,0]")!=std::string::npos,"Completed trips must leave intersection queues");
+            sim.add_trip({0,1});sim.reset();
+            require(sim.snapshot(false,1).find("\"intersectionQueues\":[0,0,0]")!=std::string::npos,"Reset must clear intersection queues");
+        }
+        {
+            // Two parallel approaches wait on red; unfinished trips leave on their actual lane.
+            auto g=city("1 3 1 1\n2 3 1 1\n2 3 1 1\n3 4 0 2\n");
+            auto c=config();c.green=10;c.max_wait=.2;
+            sf::Simulation sim(g,c);
+            require(sim.add_trip({1,3}) && sim.add_trip({1,3}),"Crashout setup failed");
+            tick(sim,9);require(sim.stats.abandoned==0 && sim.active_count==2,"Cars disappeared before reaching a node");
+            tick(sim,11);invariants(sim);
+            require(sim.stats.abandoned==2 && sim.stats.completed==0,"Unfinished trips not counted as crashouts");
+            require(sim.lane_crashouts==std::vector<uint64_t>({0,1,1,0}),"Crashouts attributed to the wrong lanes");
+            require(sim.snapshot(false,1).find("\"laneCrashouts\":[0,1,1,0]")!=std::string::npos,"Snapshot missing lane crashout counts");
+            require(sim.add_trip({1}),"Destination-arrival setup failed");tick(sim,20);invariants(sim);
+            require(sim.stats.completed==1 && sim.stats.abandoned==2,"Arrival at destination was counted as a crashout");
+            sim.reset();invariants(sim);
+            require(sim.lane_crashouts==std::vector<uint64_t>(4,0),"Reset retained road crashouts");
         }
         {
             auto g=city("1 3 1 1\n2 3 1 1\n3 4 0 20\n"); auto c=config(); c.green=2;c.yellow=1;c.all_red=1;

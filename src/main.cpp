@@ -27,8 +27,10 @@ Each row: starting_node ending_node traffic_light_at_end length
 Repeated rows are parallel lanes. Reverse travel needs its own row.
 
   --city FILE         Load a city file (or use a positional filename)
-  --layout FILE       Node drawing coordinates: node_id x y
-                      Defaults to CITY.LAYOUT alongside the input file
+  --layout FILE       Fixed drawing coordinates: node_id x y
+                      Missing nodes are positioned automatically
+                      Otherwise CITY.LAYOUT is used as starting hints
+  --auto-layout       Rearrange all nodes, ignoring saved drawing coordinates
   --port N            Local web port (default 8080)
   --no-browser        Print the URL without opening a browser
   --paused            Start paused
@@ -82,7 +84,7 @@ void open_browser(const std::string& url) {
 int main(int argc,char** argv) {
     try {
         sf::Config config; std::string city_file,layout_file;
-        int port=8080; bool no_browser=false,paused=false,headless=false,validate=false;
+        int port=8080; bool no_browser=false,paused=false,headless=false,validate=false,auto_layout=false,fixed_layout=false;
         double time_scale=1,duration=60;
         std::optional<std::pair<int,int>> route_request;
         for(int i=1;i<argc;++i) {
@@ -91,7 +93,8 @@ int main(int argc,char** argv) {
             if(arg=="--help" || arg=="-h") { std::cout<<help; return 0; }
             else if(arg=="--version") { std::cout<<"streetflow 0.2.0\n"; return 0; }
             else if(arg=="--city") city_file=value();
-            else if(arg=="--layout") layout_file=value();
+            else if(arg=="--layout") {layout_file=value();fixed_layout=true;}
+            else if(arg=="--auto-layout") auto_layout=true;
             else if(arg=="--no-browser") no_browser=true;
             else if(arg=="--paused") paused=true;
             else if(arg=="--headless") headless=true;
@@ -122,19 +125,20 @@ int main(int argc,char** argv) {
         }
         if(city_file.empty() && std::filesystem::exists("CITY.IN")) city_file="CITY.IN";
         sf::Graph graph;
-        if(city_file.empty()) { std::istringstream stream{std::string(demo_city)}; graph=sf::Graph::read(stream); }
+        if(city_file.empty()) { std::istringstream stream{std::string(demo_city)}; graph=sf::Graph::read(stream,false); }
         else {
             std::ifstream stream(city_file); if(!stream) throw std::runtime_error("Cannot open city file: "+city_file);
-            graph=sf::Graph::read(stream);
+            graph=sf::Graph::read(stream,false);
             if(layout_file.empty()) {
                 auto candidate=std::filesystem::path(city_file).parent_path()/"CITY.LAYOUT";
                 if(std::filesystem::exists(candidate)) layout_file=candidate.string();
             }
         }
-        if(!layout_file.empty()) {
+        if(!auto_layout && !layout_file.empty()) {
             std::ifstream stream(layout_file); if(!stream) throw std::runtime_error("Cannot open layout: "+layout_file);
-            graph.read_layout(stream);
-        } else if(city_file.empty()) { std::istringstream stream{std::string(demo_layout)}; graph.read_layout(stream); }
+            graph.read_layout(stream,fixed_layout);
+        } else if(!auto_layout && city_file.empty()) { std::istringstream stream{std::string(demo_layout)}; graph.read_layout(stream,false); }
+        else graph.automatic_layout();
         if(validate) {
             std::cout<<"Valid city: "<<graph.nodes.size()<<" nodes, "<<graph.lanes.size()<<" directed lanes\n"; return 0;
         }

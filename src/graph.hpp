@@ -22,9 +22,9 @@ struct Graph {
     std::vector<Lane> lanes;
     std::vector<int> origins;
     std::unordered_map<int, int> node_index;
-    static Graph read(std::istream& input);
-    void automatic_layout();
-    void read_layout(std::istream& input);
+    static Graph read(std::istream& input, bool arrange = true);
+    void automatic_layout(const std::vector<bool>& fixed = {}, bool use_positions = false);
+    void read_layout(std::istream& input, bool fixed = true);
     std::string json() const;
 };
 }
