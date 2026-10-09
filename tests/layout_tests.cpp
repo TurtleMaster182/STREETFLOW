@@ -55,6 +55,7 @@ int main() {
         // needs to be finite, deterministic and clear of overlapping nodes.
         std::string impossible="1 2 0 10\n2 3 0 10\n1 3 0 300\n";
         auto conflict=city(impossible);clearance(conflict);
+        require(distance(conflict,1,2)<400 && distance(conflict,2,3)<400,"Long cyclic road stretched short neighbouring roads instead of bending");
         require(conflict.json()==city(impossible).json(),"Conflicting road lengths produce unstable placement");
         auto reordered=city("50 40 0 12\n40 10 0 15\n20 50 0 12\n30 40 0 10\n20 30 0 15\n10 20 0 10\n20 10 0 10\n");
         for(const auto& original:a.nodes) {

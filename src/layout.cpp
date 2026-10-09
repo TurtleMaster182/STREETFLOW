@@ -278,6 +278,18 @@ void Graph::automatic_layout(const std::vector<bool>& fixed,bool use_positions) 
                 radii[i]=std::max(radii[i],width+18);radii[j]=std::max(radii[j],width+18);
             }
         }
+        // A long road may bend; its chord must not stretch a much shorter
+        // alternate route. Use the shortest network metric as the spring target
+        // in small diagrams, leaving its true length to the browser geometry.
+        if(component.size()<=250) {
+            const size_t count=component.size();
+            std::vector<double> metric(count*count,std::numeric_limits<double>::infinity());
+            for(size_t i=0;i<count;++i)metric[i*count+i]=0;
+            for(const auto& edge:edges)metric[edge.a*count+edge.b]=metric[edge.b*count+edge.a]=edge.target;
+            for(size_t k=0;k<count;++k)for(size_t i=0;i<count;++i)for(size_t j=0;j<count;++j)
+                metric[i*count+j]=std::min(metric[i*count+j],metric[i*count+k]+metric[k*count+j]);
+            for(auto& edge:edges)edge.target=metric[edge.a*count+edge.b];
+        }
         for(auto& neighbours:adjacent)std::sort(neighbours.begin(),neighbours.end());
         std::sort(edges.begin(),edges.end(),[](const Edge& a,const Edge& b){return std::pair{a.a,a.b}<std::pair{b.a,b.b};});
         if(use_positions && !pinned) {
