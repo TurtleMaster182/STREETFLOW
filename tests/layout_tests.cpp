@@ -9,6 +9,14 @@ namespace {
 void require(bool condition,const std::string& message){if(!condition)throw std::runtime_error(message);}
 sf::Graph city(const std::string& text,bool arrange=true){std::istringstream input(text);return sf::Graph::read(input,arrange);}
 const sf::Node& node(const sf::Graph& graph,int id){return graph.nodes.at(graph.node_index.at(id));}
+double distance(const sf::Graph& graph,int from,int to) {
+    const auto& a=node(graph,from);const auto& b=node(graph,to);
+    return std::hypot(a.x-b.x,a.y-b.y);
+}
+void proportional(const sf::Graph& graph,int a,int b,int c,int d,double ratio) {
+    double drawn_ratio=distance(graph,a,b)/distance(graph,c,d);
+    require(std::abs(drawn_ratio/ratio-1)<.05,"Drawing does not preserve road length proportions");
+}
 void clearance(const sf::Graph& graph) {
     std::vector<double> radii(graph.nodes.size(),30);
     for(const auto& lane:graph.lanes) {
@@ -28,6 +36,26 @@ int main() {
         std::string roads="10 20 0 10\n20 30 0 15\n30 40 0 10\n40 10 0 15\n20 50 0 12\n50 40 0 12\n";
         auto a=city(roads),b=city(roads);clearance(a);
         require(a.json()==b.json(),"Automatic layout is not deterministic");
+        // A 300-unit highway must be about 30 times a 10-unit road, both in
+        // one component and across disconnected components (one city scale).
+        auto highway=city("1 2 0 10\n2 3 0 300\n");clearance(highway);
+        proportional(highway,2,3,1,2,30);
+        auto islands=city("1 2 0 10\n3 4 0 300\n");clearance(islands);
+        proportional(islands,3,4,1,2,30);
+        auto triangle=city("1 2 0 10\n2 3 0 20\n1 3 0 25\n");clearance(triangle);
+        proportional(triangle,2,3,1,2,2);
+        proportional(triangle,1,3,1,2,2.5);
+        auto hinted=city("1 2 0 10\n2 3 0 300\n",false);
+        std::istringstream equal_hints("1 0 0\n2 220 0\n3 440 0\n");hinted.read_layout(equal_hints,false);
+        clearance(hinted);proportional(hinted,2,3,1,2,30);
+        auto fixed=city("1 2 0 10\n2 3 0 300\n",false);
+        std::istringstream fixed_positions("1 0 0\n2 220 0\n3 440 0\n");fixed.read_layout(fixed_positions);
+        require(distance(fixed,2,3)==220 && node(fixed,3).x==440,"Explicit fixed coordinates were changed");
+        // Inconsistent cycles cannot satisfy all lengths; placement still
+        // needs to be finite, deterministic and clear of overlapping nodes.
+        std::string impossible="1 2 0 10\n2 3 0 10\n1 3 0 300\n";
+        auto conflict=city(impossible);clearance(conflict);
+        require(conflict.json()==city(impossible).json(),"Conflicting road lengths produce unstable placement");
         auto reordered=city("50 40 0 12\n40 10 0 15\n20 50 0 12\n30 40 0 10\n20 30 0 15\n10 20 0 10\n20 10 0 10\n");
         for(const auto& original:a.nodes) {
             const auto& same=node(reordered,original.id);
@@ -67,7 +95,7 @@ int main() {
                 if(t>0 && t<1)require(std::hypot(p.x-a.x-t*dx,p.y-a.y-t*dy)>=required-.1,"Node sits inside an unrelated lane bundle");
             }
         }
-        std::cout<<"PASS: layout clearance, deterministic placement, new nodes, saved anchors, disconnected components and lane-independent geometry\n";
+        std::cout<<"PASS: proportional road lengths, layout clearance, deterministic placement, new nodes, saved anchors, disconnected components and lane-independent geometry\n";
         return 0;
     } catch(const std::exception& error){std::cerr<<"FAIL: "<<error.what()<<'\n';return 1;}
 }
