@@ -1,0 +1,5 @@
+#pragma once
+#include <string_view>
+inline constexpr std::string_view web_page = R"SFASSET(@STREETFLOW_HTML@)SFASSET";
+inline constexpr std::string_view demo_city = R"SFASSET(@STREETFLOW_CITY@)SFASSET";
+inline constexpr std::string_view demo_layout = R"SFASSET(@STREETFLOW_LAYOUT@)SFASSET";
