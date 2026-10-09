@@ -281,3 +281,11 @@ For [Hackathon AI Iași](https://markaiintegrator.ro/hackathon-ai-iasi/), the si
 Air quality and the surrounding environment remain a planned extension. Start with an explicitly simulated emissions model before attempting street-level air-quality claims. The existing statistics report traffic behavior only.
 
 The event page lists AI relevance (30%), impact (25%), a functional and feasible demo (25%), and presentation (20%). It also requires declaring pre-existing code or concepts. Keep this preparation and any AI tools used documented when submitting.
+
+### Bent road rendering
+
+The browser routes lane bundles around unrelated junctions with a deterministic visibility graph, then samples vehicles by distance along each lane. Picking, direction arrows, traffic lights, and route overlays use the same geometry. Node labels hide when they cannot fit without overlapping at the current zoom. Automatic node placement in `src/layout.cpp` caps straight-line spring targets by shortest network distance for components up to 250 nodes, so a long cyclic road does not stretch a shorter alternate route. Fixed layouts preserve their coordinates.
+
+Road geometry uses a shared drawing scale derived from routed distance per CITY.IN unit. Length-fitting bends are bounded to keep the map readable, and a single conflicting short road cannot expand the scale beyond twice the median. Road details display the remaining length error. Exact proportions can be impossible with fixed or conflicting coordinates, broad lane bundles, or obstructed detours. Roads can still cross other roads; a crossing does not create an intersection. Fixed anchors inside another junction's clearance envelope can prevent a valid detour. Visibility routing runs once on load and can be expensive for very dense graphs.
+
+Run `node tests/geometry_tests.js` for geometry regression checks (also registered with CTest when Node.js is available).

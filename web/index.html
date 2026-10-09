@@ -44,7 +44,7 @@
 <aside class="sidebar">
 <section class="card"><h3>Simulation controls</h3><div class="button-row"><button id="pause" class="primary">Ⅱ Pause</button><button id="reset" title="Restart from the same random seed">↺ Reset</button></div><label for="speed">Playback speed</label><select id="speed"><option value="0.25">0.25× · Slow motion</option><option value="0.5">0.5×</option><option value="1" selected>1× · Real time</option><option value="2">2×</option><option value="5">5×</option><option value="10">10×</option><option value="20">20×</option></select><label for="spawn" class="control-row"><span>Traffic demand</span><output id="spawn-value">3 cars/s</output></label><div class="demand-inputs"><input id="spawn" type="range" min="0" max="30" step="1" value="3"><input id="spawn-number" type="number" min="0" max="2000" step="any" value="3" required aria-label="Custom traffic demand" aria-describedby="demand-help" inputmode="decimal"></div><div id="demand-help" class="fine">0–2,000 cars/s. Press Enter or leave the field to apply.</div><div class="fine">Random arrival attempts per simulated second. Arrival attempts are skipped when a lane entrance is full.</div></section>
 <section class="card"><h3 id="detail-title">Explore the network</h3><div id="detail"><div class="fine">Click a road to see its direction, length, lane count, and traffic signal.</div></div></section>
-<section class="card"><h3>Run details</h3><div class="readout"><span>Random seed</span><strong id="seed" class="mono">42</strong></div><div class="readout"><span>Car speed</span><strong id="car-speed">2 units/s</strong></div><div class="readout"><span>Crashout delay limit</span><strong id="max-wait">60 s</strong></div><div class="readout"><span>Crashed out</span><strong id="abandoned">0</strong></div><div class="readout"><span>Unadmitted arrivals</span><strong id="rejected">0</strong></div><div class="readout"><span>Distance travelled</span><strong id="distance">0 units</strong></div><p class="fine">Drivers who reach the delay limit leave at the next node. Crashed-out trips are counted separately.</p><p class="fine" style="margin-bottom:0">Automatic layouts approximate CITY.IN road lengths at one shared scale. Junction clearance and conflicting lengths can distort the drawing; explicit fixed layouts use their saved coordinates.</p></section>
+<section class="card"><h3>Run details</h3><div class="readout"><span>Random seed</span><strong id="seed" class="mono">42</strong></div><div class="readout"><span>Car speed</span><strong id="car-speed">2 units/s</strong></div><div class="readout"><span>Crashout delay limit</span><strong id="max-wait">60 s</strong></div><div class="readout"><span>Crashed out</span><strong id="abandoned">0</strong></div><div class="readout"><span>Unadmitted arrivals</span><strong id="rejected">0</strong></div><div class="readout"><span>Distance travelled</span><strong id="distance">0 units</strong></div><p class="fine">Drivers who reach the delay limit leave at the next node. Crashed-out trips are counted separately.</p><p class="fine" style="margin-bottom:0">Roads bend around unrelated junctions and use one shared units scale. Clearance, fixed coordinates and conflicting lengths can prevent exact proportions. Zoom in to inspect dense networks.</p></section>
 </aside>
 </div>
 <footer><span><span class="tag">●</span> Local simulation · C++ engine · Fixed 50 ms steps</span><span id="render-status">All values are simulated</span></footer>
@@ -58,9 +58,67 @@ const colors=['#ee857d','#a6eed2','#efbd77'];
 function heatColor(value){const a=value<.45?[44,72,77]:[167,122,65],b=value<.45?[167,122,65]:[194,76,71],t=value<.45?value/.45:(value-.45)/.55;return `rgb(${a.map((c,i)=>Math.round(c+(b[i]-c)*t)).join(',')})`;}
 const fmt=n=>new Intl.NumberFormat().format(n);
 function resize(){const rect=canvas.getBoundingClientRect();width=rect.width;height=rect.height;canvas.width=width*devicePixelRatio;canvas.height=height*devicePixelRatio;ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);}
-function fit(){if(!graph)return;const xs=graph.nodes.map(n=>n.x),ys=graph.nodes.map(n=>n.y);const minX=xs.reduce((a,b)=>Math.min(a,b),Infinity),maxX=xs.reduce((a,b)=>Math.max(a,b),-Infinity),minY=ys.reduce((a,b)=>Math.min(a,b),Infinity),maxY=ys.reduce((a,b)=>Math.max(a,b),-Infinity);zoom=Math.min((width-120)/Math.max(100,maxX-minX),(height-145)/Math.max(100,maxY-minY),2);panX=width/2-(minX+maxX)/2*zoom;panY=height/2-(minY+maxY)/2*zoom;}
-function geometry(l){const a=graph.nodes[l.from],b=graph.nodes[l.to],dx=b.x-a.x,dy=b.y-a.y,len=Math.hypot(dx,dy)||1,nx=-dy/len,ny=dx/len;const offset=6+l.index*9;return{...l,ax:a.x+nx*offset,ay:a.y+ny*offset,bx:b.x+nx*offset,by:b.y+ny*offset,dx,dy,len};}
-function point(l,t){return{x:l.ax+(l.bx-l.ax)*t,y:l.ay+(l.by-l.ay)*t};}
+function fit(){if(!graph)return;const bounds=[...graph.nodes,...lanes.flatMap(l=>l.points)];const xs=bounds.map(n=>n.x),ys=bounds.map(n=>n.y);const minX=xs.reduce((a,b)=>Math.min(a,b),Infinity),maxX=xs.reduce((a,b)=>Math.max(a,b),-Infinity),minY=ys.reduce((a,b)=>Math.min(a,b),Infinity),maxY=ys.reduce((a,b)=>Math.max(a,b),-Infinity);zoom=Math.min((width-120)/Math.max(100,maxX-minX),(height-145)/Math.max(100,maxY-minY),2);panX=width/2-(minX+maxX)/2*zoom;panY=height/2-(minY+maxY)/2*zoom;}
+// Geometry is shared by drawing, picking, route overlays and vehicle motion.
+const distance=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+function pathLength(points){return points.slice(1).reduce((sum,p,i)=>sum+distance(points[i],p),0);}
+function blocked(a,b,o){
+// Open rectangle intersection; corners lie just outside the clearance envelope.
+let lo=0,hi=1;
+for(const axis of ['x','y']){const d=b[axis]-a[axis],min=o[axis]-o.r,max=o[axis]+o.r;
+if(Math.abs(d)<1e-10){if(a[axis]<=min||a[axis]>=max)return false;continue;}
+let t0=(min-a[axis])/d,t1=(max-a[axis])/d;if(t0>t1)[t0,t1]=[t1,t0];lo=Math.max(lo,t0);hi=Math.min(hi,t1);if(lo>=hi-1e-10)return false;}
+return hi>0&&lo<1;
+}
+function clearPath(points,obstacles){return points.slice(1).every((b,i)=>!obstacles.some(o=>blocked(points[i],b,o)));}
+function detour(a,b,obstacles){
+// Grow a visibility graph only when its current shortest route hits an obstacle.
+let points=[a,b],included=new Set();
+for(let pass=0;pass<=obstacles.length;pass++){
+const costs=points.map(()=>Infinity),previous=points.map(()=>-1),done=new Set();costs[0]=0;
+for(let step=0;step<points.length;step++){
+let u=-1;for(let i=0;i<points.length;i++)if(!done.has(i)&&(u<0||costs[i]<costs[u]))u=i;
+if(u<0||!Number.isFinite(costs[u])||u===1)break;done.add(u);
+for(let v=0;v<points.length;v++)if(!done.has(v)&&v!==u&&!Array.from(included).some(i=>blocked(points[u],points[v],obstacles[i]))){const next=costs[u]+distance(points[u],points[v]);if(next<costs[v]){costs[v]=next;previous[v]=u;}}
+}
+if(!Number.isFinite(costs[1]))return [a,b]; // Impossible saved anchors inside another junction.
+let route=[],v=1;while(v>=0){route.unshift(points[v]);v=previous[v];}
+const hits=[];obstacles.forEach((o,i)=>{if(!included.has(i)&&route.slice(1).some((p,j)=>blocked(route[j],p,o)))hits.push(i);});
+if(!hits.length)return route;
+for(const i of hits){included.add(i);const o=obstacles[i],r=o.r+1;for(const x of [-1,1])for(const y of [-1,1])points.push({x:o.x+x*r,y:o.y+y*r});}
+}
+return [a,b];
+}
+function buildGeometry(){
+// Cache nearest-node distances so minimum-size labels cannot overlap on zoom out.
+for(const n of graph.nodes)n.nearest=Infinity;
+const sorted=[...graph.nodes].sort((a,b)=>a.x-b.x);
+for(let i=0;i<sorted.length;i++)for(const direction of [-1,1])for(let j=i+direction;j>=0&&j<sorted.length;j+=direction){const a=sorted[i],b=sorted[j];if(Math.abs(b.x-a.x)>a.nearest)break;a.nearest=Math.min(a.nearest,distance(a,b));}
+const radii=graph.nodes.map(()=>30),bundles=new Map();
+for(const l of graph.lanes){const r=6+(l.count-1)*9+22;radii[l.from]=Math.max(radii[l.from],r);radii[l.to]=Math.max(radii[l.to],r);const key=[Math.min(l.from,l.to),Math.max(l.from,l.to)].join(',');if(!bundles.has(key))bundles.set(key,{from:Math.min(l.from,l.to),to:Math.max(l.from,l.to),width:0});bundles.get(key).width=Math.max(bundles.get(key).width,6+(l.count-1)*9+4);}
+for(const bundle of bundles.values()){bundle.obstacles=graph.nodes.flatMap((n,i)=>i===bundle.from||i===bundle.to?[]:[{...n,r:radii[i]+bundle.width+8}]);bundle.points=detour(graph.nodes[bundle.from],graph.nodes[bundle.to],bundle.obstacles);}
+let scale=0;const scales=[];
+const prepared=graph.lanes.map(l=>{const bundle=bundles.get([Math.min(l.from,l.to),Math.max(l.from,l.to)].join(','));let base=l.from===bundle.from?bundle.points:[...bundle.points].reverse();const offset=6+l.index*9;
+const points=base.map((p,i)=>{const a=base[Math.max(0,i-1)],b=base[Math.min(base.length-1,i+1)],d=distance(a,b)||1;return{x:p.x-(b.y-a.y)/d*offset,y:p.y+(b.x-a.x)/d*offset};});
+const obstacles=graph.nodes.flatMap((n,i)=>i===l.from||i===l.to?[]:[{...n,r:radii[i]+8}]);
+const safe=clearPath(points,obstacles)?points:detour(points[0],points.at(-1),obstacles);
+scales.push(pathLength(safe)/l.length);scale=Math.max(scale,pathLength(safe)/l.length);return{...l,points:safe,obstacles};});
+// Do not let a single impossible short road expand the whole city.
+scales.sort((a,b)=>a-b);scale=Math.min(scale,2*(scales[Math.floor(scales.length/2)]||1));
+return prepared.map(l=>{
+const target=l.length*scale;let points=l.points,best=Math.abs(pathLength(points)-target);
+// Add a bend only if the entire resulting path remains clear. Scan both sides
+// because an obstacle may make one direction infeasible or non-monotonic.
+for(let segment=0;segment<l.points.length-1;segment++)for(const sign of [-1,1]){
+const a=l.points[segment],b=l.points[segment+1],d=distance(a,b)||1;
+let low=0,high=Math.min(target/2+d,d*.9);
+for(let step=0;step<36;step++){const h=(low+high)/2,mid={x:(a.x+b.x)/2-(b.y-a.y)/d*h*sign,y:(a.y+b.y)/2+(b.x-a.x)/d*h*sign};const candidate=[...l.points.slice(0,segment+1),mid,...l.points.slice(segment+1)],len=pathLength(candidate),error=Math.abs(len-target);
+if(error<best&&clearPath(candidate,l.obstacles)){points=candidate;best=error;}if(len<target)low=h;else high=h;}
+}
+const cumulative=[0];for(let i=1;i<points.length;i++)cumulative.push(cumulative.at(-1)+distance(points[i-1],points[i]));return{...l,points,cumulative,len:cumulative.at(-1),target};});
+}
+function point(l,t){const at=Math.max(0,Math.min(1,t))*l.len;let i=1;while(i<l.points.length-1&&l.cumulative[i]<at)i++;const a=l.points[i-1],b=l.points[i],f=(at-l.cumulative[i-1])/(l.cumulative[i]-l.cumulative[i-1]||1);return{x:a.x+(b.x-a.x)*f,y:a.y+(b.y-a.y)*f,angle:Math.atan2(b.y-a.y,b.x-a.x)};}
+function roadPath(l,color,lineWidth){ctx.strokeStyle=color;ctx.lineWidth=lineWidth;ctx.lineJoin='round';ctx.beginPath();l.points.forEach((p,i)=>{const s=screen(p);if(i)ctx.lineTo(s.x,s.y);else ctx.moveTo(s.x,s.y);});ctx.stroke();}
 function screen(p){return{x:p.x*zoom+panX,y:p.y*zoom+panY};}
 function path(a,b,color,lineWidth){ctx.strokeStyle=color;ctx.lineWidth=lineWidth;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
 function circle(p,r,color){ctx.fillStyle=color;ctx.beginPath();ctx.arc(p.x,p.y,r,0,Math.PI*2);ctx.fill();}
@@ -83,10 +141,11 @@ function drawNodes(){
 if(!graph)return;
 ctx.save();
 for(const n of graph.nodes){
-const p=screen(n),label=String(n.id),visible=showLabels&&zoom>.12;
+const p=screen(n),label=String(n.id);let visible=showLabels&&zoom>.12;
 const fontSize=largeNumbers?Math.max(16,14*zoom):Math.max(10,10*zoom);
 ctx.font=`${largeNumbers?700:600} ${fontSize}px ui-monospace,monospace`;
-const radius=Math.max(5,10*zoom,visible?ctx.measureText(label).width/2+5:0,visible?fontSize*.65:0);
+const needed=Math.max(ctx.measureText(label).width/2+5,fontSize*.65),available=Math.max(0,n.nearest*zoom/2-5);visible=visible&&needed<=available;
+const radius=Math.min(available,Math.max(1,10*zoom,visible?needed:0));
 circle(p,radius,'#152127');ctx.strokeStyle=n.signal?'#80ab9e':'#607b83';ctx.lineWidth=1.5;ctx.beginPath();ctx.arc(p.x,p.y,radius,0,Math.PI*2);ctx.stroke();
 if(visible){ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#effbf5';ctx.fillText(label,p.x,p.y);}
 if(state?.route&&(n.id===state.route.from||n.id===state.route.to)){ctx.strokeStyle=n.id===state.route.from?'#a6eed2':'#99baf4';ctx.lineWidth=2;ctx.beginPath();ctx.arc(p.x,p.y,radius+4,0,Math.PI*2);ctx.stroke();}
@@ -94,22 +153,22 @@ if(state?.route&&(n.id===state.route.from||n.id===state.route.to)){ctx.strokeSty
 ctx.restore();
 }
 function draw(now){ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);ctx.clearRect(0,0,width,height);ctx.fillStyle='#233039';const grid=32;for(let x=(panX%grid+grid)%grid;x<width;x+=grid)for(let y=(panY%grid+grid)%grid;y<height;y+=grid)ctx.fillRect(x,y,1,1);
-if(graph){ctx.lineCap='round';for(const l of lanes){const a=screen(point(l,0)),b=screen(point(l,1));path(a,b,selected===l.id?'#90b5ab':showHeat&&state?heatColor(state.lanes[l.id][4]):'#2b3b43',Math.max(2,7*zoom));const m=screen(point(l,.57)),angle=Math.atan2(l.dy,l.dx);ctx.save();ctx.translate(m.x,m.y);ctx.rotate(angle);ctx.strokeStyle='#70888f';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(-3,-2.7);ctx.lineTo(1,0);ctx.lineTo(-3,2.7);ctx.stroke();ctx.restore();if(l.light&&state){circle(screen(point(l,Math.max(.55,1-19/l.len))),Math.max(2,3*zoom),colors[state.lanes[l.id][1]]);}}
+if(graph){ctx.lineCap='round';for(const l of lanes){const a=screen(point(l,0)),b=screen(point(l,1));roadPath(l,selected===l.id?'#90b5ab':showHeat&&state?heatColor(state.lanes[l.id][4]):'#2b3b43',Math.max(2,7*zoom));const m=screen(point(l,.57)),angle=point(l,.57).angle;ctx.save();ctx.translate(m.x,m.y);ctx.rotate(angle);ctx.strokeStyle='#70888f';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(-3,-2.7);ctx.lineTo(1,0);ctx.lineTo(-3,2.7);ctx.stroke();ctx.restore();if(l.light&&state){circle(screen(point(l,Math.max(.55,1-19/l.len))),Math.max(2,3*zoom),colors[state.lanes[l.id][1]]);}}
 if(state?.route?.fastest?.reachable){
-const trace=(route,color,dashed)=>{ctx.setLineDash(dashed?[6,5]:[]);for(const id of route.lanes){const l=lanes[id];path(screen(point(l,0)),screen(point(l,1)),color,Math.max(2.2,3*zoom));}ctx.setLineDash([]);};
+const trace=(route,color,dashed)=>{ctx.setLineDash(dashed?[6,5]:[]);for(const id of route.lanes){const l=lanes[id];roadPath(l,color,Math.max(2.2,3*zoom));}ctx.setLineDash([]);};
 trace(state.route.shortest,'#99baf4',true);
 }
 
-const blend=state?.paused?1:Math.min(1,Math.max(0,(now-receivedAt)/110));for(const [id,c]of currentCars){const prev=oldCars.get(id)||c;const p={x:prev.x+(c.x-prev.x)*blend,y:prev.y+(c.y-prev.y)*blend};const s=screen(p);if(s.x<-10||s.x>width+10||s.y<-10||s.y>height+10)continue;ctx.save();ctx.translate(s.x,s.y);ctx.rotate(c.angle);ctx.fillStyle=c.velocity<.05?'#efbd77':'#b9f6dc';const size=Math.max(2,zoom*5);ctx.fillRect(-size/2,-Math.max(1,zoom*1.8),size,Math.max(2,zoom*3.6));ctx.restore();}}
+const blend=state?.paused?1:Math.min(1,Math.max(0,(now-receivedAt)/110));for(const [id,c]of currentCars){const prev=oldCars.get(id)||c;const p=prev.lane===c.lane?point(lanes[c.lane],prev.progress+(c.progress-prev.progress)*blend):c;const s=screen(p);if(s.x<-10||s.x>width+10||s.y<-10||s.y>height+10)continue;ctx.save();ctx.translate(s.x,s.y);ctx.rotate(p.angle);ctx.fillStyle=c.velocity<.05?'#efbd77':'#b9f6dc';const size=Math.max(2,zoom*5);ctx.fillRect(-size/2,-Math.max(1,zoom*1.8),size,Math.max(2,zoom*3.6));ctx.restore();}}
 // Draw the selected route above vehicles so its translucent green stroke covers traffic.
 if(graph&&state?.route?.fastest?.reachable){
 ctx.save();ctx.globalAlpha=0.5;ctx.strokeStyle='#22ff66';ctx.lineWidth=Math.max(5,10*zoom);ctx.lineCap='round';ctx.lineJoin='round';ctx.setLineDash([]);ctx.beginPath();
-state.route.fastest.lanes.forEach((id,index)=>{const lane=lanes[id],a=screen(point(lane,0)),b=screen(point(lane,1));if(index===0)ctx.moveTo(a.x,a.y);else ctx.lineTo(a.x,a.y);ctx.lineTo(b.x,b.y);});
+state.route.fastest.lanes.forEach(id=>{const lane=lanes[id];lane.points.forEach((p,i)=>{const s=screen(p);if(i)ctx.lineTo(s.x,s.y);else ctx.moveTo(s.x,s.y);});});
 ctx.stroke();ctx.restore();
 }
 drawNodes();drawCrashouts();
 requestAnimationFrame(draw);}
-function detail(){if(selected<0||!state)return;const l=lanes[selected],info=state.lanes[selected];$('detail-title').textContent=`Road ${graph.nodes[l.from].id} → ${graph.nodes[l.to].id}`;const rows=[['Selected lane',`${l.index+1} of ${l.count}`],['Length',`${l.length} units`],['Free-flow time',`${(l.length/state.speed).toFixed(1)} s`],['Vehicles in lane',info[0]],['Crashed out on road',fmt(roadCrashouts.get(roadKey(l))||0)],['Crashed out in lane',fmt(state.laneCrashouts?.[selected]||0)],['Estimated travel',`${info[3].toFixed(1)} s`],['Extra traffic delay',`${info[6].toFixed(1)} s`],['Signal delay without traffic',`${info[7].toFixed(1)} s`],['Road space occupied',`${Math.round(info[5]*100)}%`],['Signal',l.light?`${['Red','Green','Amber'][info[1]]} · ${info[2].toFixed(1)} s`:'Unsignalized']];$('detail').replaceChildren(...rows.map(([name,value])=>{const row=document.createElement('div');row.className='readout';const label=document.createElement('span');label.textContent=name;const output=document.createElement('strong');output.textContent=value;row.append(label,output);return row;}));}
+function detail(){if(selected<0||!state)return;const l=lanes[selected],info=state.lanes[selected];$('detail-title').textContent=`Road ${graph.nodes[l.from].id} → ${graph.nodes[l.to].id}`;const rows=[['Selected lane',`${l.index+1} of ${l.count}`],['Length',`${l.length} units`],['Drawing length error',`${(100*(l.len/l.target-1)).toFixed(1)}%`],['Free-flow time',`${(l.length/state.speed).toFixed(1)} s`],['Vehicles in lane',info[0]],['Crashed out on road',fmt(roadCrashouts.get(roadKey(l))||0)],['Crashed out in lane',fmt(state.laneCrashouts?.[selected]||0)],['Estimated travel',`${info[3].toFixed(1)} s`],['Extra traffic delay',`${info[6].toFixed(1)} s`],['Signal delay without traffic',`${info[7].toFixed(1)} s`],['Road space occupied',`${Math.round(info[5]*100)}%`],['Signal',l.light?`${['Red','Green','Amber'][info[1]]} · ${info[2].toFixed(1)} s`:'Unsignalized']];$('detail').replaceChildren(...rows.map(([name,value])=>{const row=document.createElement('div');row.className='readout';const label=document.createElement('span');label.textContent=name;const output=document.createElement('strong');output.textContent=value;row.append(label,output);return row;}));}
 function intersectionQueues(s){
 const ranked=graph.nodes.map((node,index)=>({id:node.id,count:s.intersectionQueues?.[index]||0})).sort((a,b)=>b.count-a.count||a.id-b.id);
 const signature=ranked.map(n=>`${n.id}:${n.count}`).join(',');
@@ -119,7 +178,7 @@ list.replaceChildren(...ranked.map((node,index)=>{const row=document.createEleme
 function update(s){state=s;intersectionQueues(s);
 roadCrashouts=new Map();for(const lane of lanes){const key=roadKey(lane);roadCrashouts.set(key,(roadCrashouts.get(key)||0)+(s.laneCrashouts?.[lane.id]||0));}
 $('max-wait').textContent=s.maxWait>0?`${fmt(s.maxWait)} s`:'Disabled';$('abandoned').textContent=fmt(s.stats.abandoned);
-if(s.route&&!s.route.error&&!routeFormChanged){$('route-from').value=s.route.from;$('route-to').value=s.route.to;}const stats=s.stats;$('active').textContent=fmt(stats.active);$('stopped').textContent=fmt(stats.stopped);$('completed').textContent=fmt(stats.completed);$('trip').textContent=stats.completed?stats.avgTrip.toFixed(1):'—';$('delay').textContent=stats.completed?`${stats.avgWait.toFixed(1)} s average delay`:'Waiting for a completed trip';$('capacity').textContent=`${fmt(s.maxCars)} vehicle capacity`;$('arrivals').textContent=`${fmt(stats.spawned)} vehicles admitted`;$('rejected').textContent=fmt(stats.rejected);$('distance').textContent=`${fmt(Math.round(stats.distance))} units`;$('seed').textContent=s.seed;$('car-speed').textContent=`${s.speed} units/s`;$('clock').textContent=`${String(Math.floor(stats.time/60)).padStart(2,'0')}:${(stats.time%60).toFixed(1).padStart(4,'0')}`;$('pause').textContent=s.paused?'▶ Resume':'Ⅱ Pause';if(document.activeElement!==$('speed')){if(![...$('speed').options].some(o=>Number(o.value)===s.timeScale))$('speed').add(new Option(`${s.timeScale}×`,s.timeScale));$('speed').value=s.timeScale;}if(pendingDemand!==null&&Math.abs(s.spawnRate-pendingDemand)<0.00051)pendingDemand=null;if(document.activeElement!==$('spawn')&&document.activeElement!==$('spawn-number')&&pendingDemand===null)syncDemand(s.spawnRate);$('connection').textContent=s.paused?'Local engine · Paused':'Local engine · Running';$('connection-dot').classList.remove('offline');$('render-status').textContent=stats.active>s.renderLimit?`Showing ${fmt(s.cars.length)} of ${fmt(stats.active)} cars · All cars are simulated`:'All values are simulated';oldCars=stats.time<lastTime?new Map():currentCars;currentCars=new Map(s.cars.map(c=>{const l=lanes[c[1]],p=point(l,c[2]);return[c[0],{...p,velocity:c[3],angle:Math.atan2(l.dy,l.dx)}];}));lastTime=stats.time;receivedAt=performance.now();detail();routeDetails();}
+if(s.route&&!s.route.error&&!routeFormChanged){$('route-from').value=s.route.from;$('route-to').value=s.route.to;}const stats=s.stats;$('active').textContent=fmt(stats.active);$('stopped').textContent=fmt(stats.stopped);$('completed').textContent=fmt(stats.completed);$('trip').textContent=stats.completed?stats.avgTrip.toFixed(1):'—';$('delay').textContent=stats.completed?`${stats.avgWait.toFixed(1)} s average delay`:'Waiting for a completed trip';$('capacity').textContent=`${fmt(s.maxCars)} vehicle capacity`;$('arrivals').textContent=`${fmt(stats.spawned)} vehicles admitted`;$('rejected').textContent=fmt(stats.rejected);$('distance').textContent=`${fmt(Math.round(stats.distance))} units`;$('seed').textContent=s.seed;$('car-speed').textContent=`${s.speed} units/s`;$('clock').textContent=`${String(Math.floor(stats.time/60)).padStart(2,'0')}:${(stats.time%60).toFixed(1).padStart(4,'0')}`;$('pause').textContent=s.paused?'▶ Resume':'Ⅱ Pause';if(document.activeElement!==$('speed')){if(![...$('speed').options].some(o=>Number(o.value)===s.timeScale))$('speed').add(new Option(`${s.timeScale}×`,s.timeScale));$('speed').value=s.timeScale;}if(pendingDemand!==null&&Math.abs(s.spawnRate-pendingDemand)<0.00051)pendingDemand=null;if(document.activeElement!==$('spawn')&&document.activeElement!==$('spawn-number')&&pendingDemand===null)syncDemand(s.spawnRate);$('connection').textContent=s.paused?'Local engine · Paused':'Local engine · Running';$('connection-dot').classList.remove('offline');$('render-status').textContent=stats.active>s.renderLimit?`Showing ${fmt(s.cars.length)} of ${fmt(stats.active)} cars · All cars are simulated`:'All values are simulated';oldCars=stats.time<lastTime?new Map():currentCars;currentCars=new Map(s.cars.map(c=>{const l=lanes[c[1]],p=point(l,c[2]);return[c[0],{...p,velocity:c[3],lane:c[1],progress:c[2],angle:p.angle}];}));lastTime=stats.time;receivedAt=performance.now();detail();routeDetails();}
 function routeDetails(){
 const route=state?.route;
 if(!route){$('route-summary').textContent='Choose two nodes to compare travel time.';$('route-path').textContent='ETAs account for current traffic and light timing.';return;}
@@ -151,9 +210,9 @@ $('label-size').onclick=()=>{largeNumbers=!largeNumbers;$('label-size').textCont
 $('crashouts').onclick=()=>{showCrashouts=!showCrashouts;$('crashouts').textContent=`Crashouts ${showCrashouts?'on':'off'}`;$('crashouts').setAttribute('aria-pressed',String(showCrashouts));$('crashout-key').hidden=!showCrashouts;};
 $('pause').onclick=()=>state&&command(state.paused?'resume':'pause');$('reset').onclick=()=>command('reset');$('speed').onchange=e=>command(`speed=${e.target.value}`);$('spawn').oninput=e=>syncDemand(Number(e.target.value),true);$('spawn').onchange=()=>applyDemand();$('spawn-number').onchange=()=>applyDemand();$('spawn-number').onkeydown=e=>{if(e.key==='Enter'){e.preventDefault();applyDemand();}};$('fit').onclick=fit;$('labels').onclick=()=>{showLabels=!showLabels;$('labels').textContent=`Labels ${showLabels?'on':'off'}`;};
 canvas.addEventListener('wheel',e=>{e.preventDefault();const rect=canvas.getBoundingClientRect(),x=e.clientX-rect.left,y=e.clientY-rect.top,next=Math.max(.015,Math.min(8,zoom*Math.exp(-e.deltaY*.001)));panX=x-(x-panX)*next/zoom;panY=y-(y-panY)*next/zoom;zoom=next;},{passive:false});
-canvas.onpointerdown=e=>{canvas.setPointerCapture(e.pointerId);drag={x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY};};canvas.onpointermove=e=>{if(!drag)return;panX+=e.clientX-drag.x;panY+=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;};canvas.onpointerup=e=>{if(drag&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<4&&graph){const rect=canvas.getBoundingClientRect(),p={x:e.clientX-rect.left,y:e.clientY-rect.top};let best=12;selected=-1;for(const l of lanes){const a=screen(point(l,0)),b=screen(point(l,1)),dx=b.x-a.x,dy=b.y-a.y,den=dx*dx+dy*dy,t=den?Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/den)):0,d=Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy);if(d<best){best=d;selected=l.id;}}if(selected<0){$('detail-title').textContent='Explore the network';$('detail').textContent='Click a road to inspect its traffic.';}else detail();}drag=null;};canvas.onpointercancel=()=>drag=null;
+canvas.onpointerdown=e=>{canvas.setPointerCapture(e.pointerId);drag={x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY};};canvas.onpointermove=e=>{if(!drag)return;panX+=e.clientX-drag.x;panY+=e.clientY-drag.y;drag.x=e.clientX;drag.y=e.clientY;};canvas.onpointerup=e=>{if(drag&&Math.hypot(e.clientX-drag.startX,e.clientY-drag.startY)<4&&graph){const rect=canvas.getBoundingClientRect(),p={x:e.clientX-rect.left,y:e.clientY-rect.top};let best=12;selected=-1;for(const l of lanes)for(let i=1;i<l.points.length;i++){const a=screen(l.points[i-1]),b=screen(l.points[i]),dx=b.x-a.x,dy=b.y-a.y,den=dx*dx+dy*dy,t=den?Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/den)):0,d=Math.hypot(p.x-a.x-t*dx,p.y-a.y-t*dy);if(d<best){best=d;selected=l.id;}}if(selected<0){$('detail-title').textContent='Explore the network';$('detail').textContent='Click a road to inspect its traffic.';}else detail();}drag=null;};canvas.onpointercancel=()=>drag=null;
 new ResizeObserver(()=>{const initial=width===0;resize();if(initial)fit();}).observe(canvas);resize();requestAnimationFrame(draw);
-(async()=>{try{const response=await fetch('/api/city');if(!response.ok)throw Error('Cannot load the city.');graph=await response.json();lanes=graph.lanes.map(geometry);for(const n of [...graph.nodes].sort((a,b)=>a.id-b.id)){ $('route-from').add(new Option(n.id,n.id));$('route-to').add(new Option(n.id,n.id));}$('route-to').selectedIndex=$('route-to').options.length-1;$('network').textContent=`${fmt(graph.nodes.length)} NODES / ${fmt(lanes.length)} DIRECTED LANES`;fit();await poll();setInterval(poll,100);}catch(e){error(e.message+' Reload this page when the simulator is running.');}})();
+(async()=>{try{const response=await fetch('/api/city');if(!response.ok)throw Error('Cannot load the city.');graph=await response.json();lanes=buildGeometry();for(const n of [...graph.nodes].sort((a,b)=>a.id-b.id)){ $('route-from').add(new Option(n.id,n.id));$('route-to').add(new Option(n.id,n.id));}$('route-to').selectedIndex=$('route-to').options.length-1;$('network').textContent=`${fmt(graph.nodes.length)} NODES / ${fmt(lanes.length)} DIRECTED LANES`;fit();await poll();setInterval(poll,100);}catch(e){error(e.message+' Reload this page when the simulator is running.');}})();
 </script>
 </body>
 </html>
